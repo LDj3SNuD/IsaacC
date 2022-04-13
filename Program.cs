@@ -46,11 +46,11 @@ namespace IsaacC
             room.PlayField.PrintStats(init: true);
             rooms.PrintPreviewMap(init: true);
 
-            const string controlsMessage = "Controls: WASD keys: Move ─ Arrow keys: Attack ─ Enter key: Action ─ Esc key: Exit";
+            const string controlsMessage = "│ Controls: WASD keys: Move ─ Arrow keys: Attack ─ Enter key: Action ─ P key: Pause/Unpause ─ Esc key: Exit │";
 
             Scrolling scrolling = new();
 
-            scrolling.Start($"Welcome to {Program.Title}! (https://github.com/LDj3SNuD/IsaacC) │ Find the Boss's room, defeat him and you will win! │ {controlsMessage}");
+            scrolling.Start($"│ Welcome to {Program.Title}! (https://github.com/LDj3SNuD/IsaacC) │ Find the Boss's room, defeat him and you will win! {controlsMessage}");
 
             room.Print(init: true);
             room.PlayField.Print();
@@ -72,6 +72,8 @@ namespace IsaacC
 
             do
             {
+                bool pause = false;
+
                 Direction changeRoomDirection = Direction.None;
 
                 /**/
@@ -198,18 +200,25 @@ namespace IsaacC
                             {
                                 if (success)
                                 {
-                                    room.PlayField.PrintStats();
-
                                     shopHealth.Print(room);
                                     shopDamage.Print(room);
 
-                                    BeepAsync(frequencyA: 800, duration: 250);
+                                    BeepAsync(frequencyA: 900, duration: 250);
                                 }
                                 else
                                 {
-                                    BeepAsync(frequencyA: 600, duration: 250);
+                                    BeepAsync(frequencyA: 700, duration: 250);
                                 }
                             }
+
+                            cKeyQueue.Clear();
+
+                            break;
+                        }
+
+                        case ConsoleKey.P:
+                        {
+                            pause = true;
 
                             cKeyQueue.Clear();
 
@@ -294,24 +303,34 @@ namespace IsaacC
 
                     if (room.IsLocked)
                     {
+                        scrolling.Stop();
+
                         room.PlayField.PrintStats();
 
-                        BeepAsync(frequencyA: 1000, frequencyB: 500, duration: 250);
+                        if (room.Id != rooms.BossRoomId)
+                        {
+                            BeepAsync(frequencyA: 1000, frequencyB: 500, duration: 250);
+                        }
+                    }
+                    else
+                    {
+                        if (gameOverState == GameOverState.YouWin)
+                        {
+                            scrolling.Start("│ Game Over: You Win! │");
+                        }
+                        else if (room.Id == rooms.HomeRoomId)
+                        {
+                            scrolling.Start($"{controlsMessage}");
+                        }
+                        else
+                        {
+                            scrolling.Stop();
+                        }
                     }
 
                     rooms.PrintPreviewMap();
 
-                    if (room.Id != rooms.HomeRoomId)
-                    {
-                        scrolling.Stop();
-                    }
-                    else
-                    {
-                        scrolling.Start($"{controlsMessage}");
-                    }
-
                     room.Print();
-
                     room.PlayField.Print();
 
                     shopHealth.Print(room);
@@ -322,7 +341,13 @@ namespace IsaacC
 
                 if (room.PlayField.TryUnlockRoom())
                 {
+                    if (gameOverState == GameOverState.YouWin)
+                    {
+                        scrolling.Start("│ Game Over: You Win! │");
+                    }
+
                     rooms.PrintPreviewMap();
+
                     room.Print();
 
                     if (room.Id != rooms.BossRoomId)
@@ -333,11 +358,90 @@ namespace IsaacC
 
                 /**/
 
-                if (gameOverState == GameOverState.None)
-                {
-                    gameOverState = room.PlayField.GetGameOverState();
+                GameOverState gameOverStateNew = room.PlayField.GetGameOverState();
 
-                    HandleGameOver(gameOverState, scrolling);
+                if (gameOverStateNew == GameOverState.YouLose)
+                {
+                    if (gameOverState != GameOverState.YouLose)
+                    {
+                        gameOverState = gameOverStateNew;
+
+                        scrolling.Start("│ Game Over: You Lose! │");
+
+                        BeepAsync(frequencyA: 1000, frequencyB: 500, duration: 500, ramp: true);
+                    }
+                }
+                else if (gameOverStateNew == GameOverState.YouWin)
+                {
+                    if (gameOverState == GameOverState.None)
+                    {
+                        gameOverState = gameOverStateNew;
+
+                        scrolling.Start("│ Game Over: You Win! │");
+
+                        BeepAsync(frequencyA: 1000, frequencyB: 1500, duration: 500, ramp: true);
+                    }
+                }
+
+                /**/
+
+                if (pause)
+                {
+                    if (room.IsLocked && gameOverState != GameOverState.YouLose)
+                    {
+                        scrolling.Start("│ PAUSE │");
+
+                        do
+                        {
+                            timeLeft = 1000;
+
+                            sW.Restart();
+
+                            while (timeLeft > (int)sW.ElapsedMilliseconds)
+                            {
+                                Thread.Sleep(100);
+
+                                if (Console.KeyAvailable)
+                                {
+                                    switch (Console.ReadKey(true).Key)
+                                    {
+                                        case ConsoleKey.P:
+                                        {
+                                            pause = false;
+
+                                            timeLeft = 0;
+
+                                            break;
+                                        }
+
+                                        case ConsoleKey.Escape:
+                                        {
+                                            exit = true;
+
+                                            timeLeft = 0;
+
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (timeLeft != 0)
+                            {
+                                player0.Score = Math.Max(0, player0.Score - 1);
+
+                                room.PlayField.PrintStats();
+                            }
+                        } while (!exit && pause);
+
+                        scrolling.Stop();
+                    }
+                    else
+                    {
+                        pause = false;
+                    }
+
+                    cKeyQueue.Clear();
                 }
             }
             while (!exit);
@@ -349,32 +453,6 @@ namespace IsaacC
 
             Console.Clear();
             Console.ResetColor();
-        }
-
-        private static void HandleGameOver(GameOverState gameOverState, Scrolling scrolling)
-        {
-            switch (gameOverState)
-            {
-                case GameOverState.YouWin:
-                {
-                    scrolling.Start("Game Over: You Win!");
-                    scrolling.Lock();
-
-                    BeepAsync(frequencyA: 1000, frequencyB: 1500, duration: 500, ramp: true);
-
-                    break;
-                }
-
-                case GameOverState.YouLose:
-                {
-                    scrolling.Start("Game Over: You Lose!");
-                    scrolling.Lock();
-
-                    BeepAsync(frequencyA: 1000, frequencyB: 500, duration: 500, ramp: true);
-
-                    break;
-                }
-            }
         }
 
         private static readonly object _lock = new();
@@ -393,7 +471,7 @@ namespace IsaacC
             }
         }
 
-        public static void BeepAsync(int frequencyA = 800, int frequencyB = 0, int duration = 200, bool ramp = false)
+        public static void BeepAsync(int frequencyA = 800, int frequencyB = 0, int duration = 200, bool ramp = false, int steps = 4)
         {
             ThreadPool.QueueUserWorkItem((_) =>
             {
@@ -411,12 +489,10 @@ namespace IsaacC
                 }
                 else
                 {
-                    const int Steps = 4;
+                    int frequencyStep = (frequencyA - frequencyB) / (steps - 1);
+                    duration /= steps;
 
-                    int frequencyStep = (frequencyA - frequencyB) / (Steps - 1);
-                    duration /= Steps;
-
-                    for (int i = 1; i <= Steps; i++)
+                    for (int i = 1; i <= steps; i++)
                     {
                         if (frequencyA != 0)
                         {
@@ -2690,7 +2766,6 @@ namespace IsaacC
     {
         private volatile string _message;
         private volatile bool _enabled;
-        private volatile bool _locked;
 
         public Scrolling()
         {
@@ -2736,12 +2811,7 @@ namespace IsaacC
 
         public void Start(string message = null)
         {
-            if (_locked)
-            {
-                return;
-            }
-
-            if (message != null)
+            if (message != null && message != _message)
             {
                 Trace.Assert(!_enabled);
 
@@ -2755,22 +2825,7 @@ namespace IsaacC
 
         public void Stop()
         {
-            if (_locked)
-            {
-                return;
-            }
-
             _enabled = false;
-        }
-
-        public void Lock()
-        {
-            _locked = true;
-        }
-
-        public void Unlock()
-        {
-            _locked = false;
         }
     }
 }
